@@ -3,6 +3,7 @@
 #include <Wire.h>
 
 #include "ens16x_i2c_interface.h"
+#include <Adafruit_AHTX0.h>
 
 using namespace ScioSense;
 
@@ -20,13 +21,14 @@ using namespace ScioSense;
 
 #define SDA_PIN 8
 #define SCL_PIN 9
-#define I2C_FREQUENCY 100000  // I2C frequency in Hz (400 kHz)
+#define I2C_FREQUENCY 100000 // I2C frequency in Hz (400 kHz)
 
 #define I2C_ADDRESS 0x53
 I2cInterface i2c;
 
 // Create sensor objects
 ENS160 ens160;
+Adafruit_AHTX0 aht;
 
 void setup()
 {
@@ -34,7 +36,7 @@ void setup()
 
   Serial.begin(115200);
   ens160.enableDebugging(Serial);
-
+  
   // Initialize the LED pin as an output
   pinMode(LED_PIN, OUTPUT);
 
@@ -52,6 +54,14 @@ void setup()
 
   debugln("success");
   ens160.startStandardMeasure();
+
+  if (!aht.begin())
+  {
+    Serial.println("Could not find AHT? Check wiring");
+    while (1)
+      delay(10);
+  }
+  Serial.println("AHT10 or AHT20 found");
 }
 
 void loop()
@@ -89,5 +99,11 @@ void loop()
       Serial.println(ens160.getRs3());
     }
   }
+
+  sensors_event_t humidity, temp;
+  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+  Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
+  Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
+
   delay(2000);
 }
