@@ -19,11 +19,10 @@ using namespace ScioSense;
 #endif
 
 // WiFi options
-
 const char *WIFI_SSID = "MiFibra-486C";
 const char *WIFI_PASSWORD = "2p2gm2Ss";
 
-// Pin and I2C configurations
+// pin and I2C configurations
 #define LED_PIN 2
 #define SDA_PIN 8
 #define SCL_PIN 9
