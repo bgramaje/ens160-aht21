@@ -3,8 +3,11 @@
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
 #include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 
 #include "ens16x_i2c_interface.h"
+
 using namespace ScioSense;
 
 // debug print
@@ -22,6 +25,12 @@ using namespace ScioSense;
 const char *WIFI_SSID = "MiFibra-486C";
 const char *WIFI_PASSWORD = "2p2gm2Ss";
 
+const char *MQTT_HOST = "192.168.1.19";
+const char *MQTT_USER = "test";
+const char *MQTT_PASWORD = "test";
+
+#define MQTT_PORT 1883
+
 // pin and I2C configurations
 #define LED_PIN 2
 #define SDA_PIN 8
@@ -32,6 +41,21 @@ const char *WIFI_PASSWORD = "2p2gm2Ss";
 I2cInterface i2c;
 ENS160 ens160;
 Adafruit_AHTX0 aht;
+
+WiFiClient wifi;
+PubSubClient client(wifi);
+
+struct ENS160_data
+{
+    float tvoc;
+    float eco2;
+};
+
+struct AHT21_data
+{
+    float temp;
+    float humidity;
+};
 
 void initializeWiFi()
 {
@@ -52,6 +76,32 @@ void initializeWiFi()
     debug(WIFI_SSID);
     debug("\tIP: ");
     debugln(WiFi.localIP());
+    digitalWrite(LED_PIN, HIGH);
+}
+
+void initializeMQTT()
+{
+    debug("[MQTT] Connecting to: ");
+    debug(MQTT_HOST);
+    debug(":");
+    debug(MQTT_PORT);
+    debugln();
+
+    client.setServer(MQTT_HOST, MQTT_PORT);
+    while (!client.connected())
+    {
+        if (client.connect("ESP32Client", MQTT_USER, MQTT_PASWORD))
+        { // Replace with your client ID
+            debugln("[MQTT]: Successfully connected to broker");
+        }
+        else
+        {
+            debug("Failed, rc=");
+            debug(client.state());
+            debugln(" Retrying in 5 seconds...");
+            delay(2000);
+        }
+    }
 }
 
 void initializeDebugging()
@@ -90,7 +140,7 @@ void initializeSensors()
             delay(10);
     }
     debugln("[initializeSensors] AHT21 initialized successfully.");
- }
+}
 
 void setup()
 {
@@ -98,13 +148,16 @@ void setup()
     initializeDebugging();
     pinMode(LED_PIN, OUTPUT);
     initializeWiFi();
+    initializeMQTT();
     initializeI2C();
     initializeSensors();
     debugln("Setup complete.");
+    
 }
 
-void readENS160()
+ENS160_data readENS160()
 {
+    ENS160_data data;
     ens160.wait();
 
     if (ens160.update() == ENS16x::Result::Ok)
@@ -115,8 +168,10 @@ void readENS160()
             debug((uint8_t)ens160.getAirQualityIndex_UBA());
             debug("\tTVOC: ");
             debug(ens160.getTvoc());
+            data.tvoc = ens160.getTvoc();
             debug("\tECO2: ");
             debugln(ens160.getEco2());
+            data.eco2 = ens160.getEco2();
         }
 
         if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewGeneralPurposeData))
@@ -131,10 +186,12 @@ void readENS160()
             debugln(ens160.getRs3());
         }
     }
+    return data;
 }
 
-void readAHT21()
+AHT21_data readAHT21()
 {
+    AHT21_data data;
     sensors_event_t humidity, temp;
     aht.getEvent(&humidity, &temp);
 
@@ -142,17 +199,37 @@ void readAHT21()
     debug(temp.temperature);
     debug("\tHUM: ");
     debugln(humidity.relative_humidity);
+    data.temp = temp.temperature;
+    data.humidity = humidity.relative_humidity;
+    return data;
 }
 
 void loop()
 {
-    digitalWrite(LED_PIN, HIGH);
-    delay(2000);
-    digitalWrite(LED_PIN, LOW);
-    delay(2000);
+    if (!client.connected())
+    {
+        digitalWrite(LED_PIN, LOW);
+        initializeMQTT();
+    }
+    
+    // call loop() regularly to maintain MQTT connection and handle incoming messages
+    client.loop();
 
-    readENS160();
-    readAHT21();
+    ENS160_data ens160_data = readENS160();
+    AHT21_data aht21_data = readAHT21();
+
+    StaticJsonDocument<200> json;
+
+    json["timestamp"] = millis();
+    json["eco2"] = ens160_data.eco2;
+    json["tvoc"] = ens160_data.tvoc;
+    json["humidity"] = aht21_data.humidity;
+    json["temperature"] = aht21_data.temp;
+
+    char jsonBuffer[256];
+    serializeJson(json, jsonBuffer);
+
+    client.publish("esp32/sensors", jsonBuffer);
 
     delay(2000);
 }
