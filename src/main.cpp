@@ -36,7 +36,7 @@ void setup()
 
   Serial.begin(115200);
   ens160.enableDebugging(Serial);
-  
+
   // Initialize the LED pin as an output
   pinMode(LED_PIN, OUTPUT);
 
@@ -48,7 +48,7 @@ void setup()
   debugln("begin..");
   while (ens160.begin(&i2c) != true)
   {
-    Serial.print(".");
+    debug(".");
     delay(1000);
   }
 
@@ -57,11 +57,13 @@ void setup()
 
   if (!aht.begin())
   {
-    Serial.println("Could not find AHT? Check wiring");
+    debugln("Could not find AHT? Check wiring");
     while (1)
       delay(10);
   }
-  Serial.println("AHT10 or AHT20 found");
+  debugln("AHT10 or AHT20 found");
+  debugln("...ended setup");
+
 }
 
 void loop()
@@ -78,32 +80,35 @@ void loop()
   {
     if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewData))
     {
-      Serial.print("AQI UBA:");
-      Serial.print((uint8_t)ens160.getAirQualityIndex_UBA());
+      debug("AQI UBA:");
+      debug((uint8_t)ens160.getAirQualityIndex_UBA());
 
-      Serial.print("\tTVOC:");
-      Serial.print(ens160.getTvoc());
-      Serial.print("\tECO2:");
-      Serial.println(ens160.getEco2());
+      debug("\tTVOC:");
+      debug(ens160.getTvoc());
+      debug("\tECO2:");
+      debugln(ens160.getEco2());
     }
 
     if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewGeneralPurposeData))
     {
-      Serial.print("RS0:");
-      Serial.print(ens160.getRs0());
-      Serial.print("\tRS1:");
-      Serial.print(ens160.getRs1());
-      Serial.print("\tRS2:");
-      Serial.print(ens160.getRs2());
-      Serial.print("\tRS3:");
-      Serial.println(ens160.getRs3());
+      debug("RS0:");
+      debug(ens160.getRs0());
+      debug("\tRS1:");
+      debug(ens160.getRs1());
+      debug("\tRS2:");
+      debug(ens160.getRs2());
+      debug("\tRS3:");
+      debugln(ens160.getRs3());
     }
   }
 
   sensors_event_t humidity, temp;
-  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-  Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
-  Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
+  aht.getEvent(&humidity, &temp);
+
+  debug("TEMP:");
+  debug(temp.temperature);
+  debug("\tHUM:");
+  debugln(humidity.relative_humidity);
 
   delay(2000);
 }
