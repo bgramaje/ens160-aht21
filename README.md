@@ -1,5 +1,7 @@
 ### ESP32-C3 | ENS160 + AHT21
 
+> 👨‍💻 Author: bgramaje
+
 This project collects environmental data using the ENS160 and AHT21 sensors and publishes the data to an MQTT broker. It also uses NTP for timestamping the data.
 
 ![Assembly Diagram](/public/assembly.jpg)
