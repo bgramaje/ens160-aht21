@@ -53,6 +53,7 @@ This project collects environmental data using the ENS160 and AHT21 sensors and 
    - You should see debug output indicating the status of the WiFi connection, MQTT connection, and sensor readings.
 
 <p align="center">
+  <img src="/public/mqtt.png" width="500px" height="auto"/>
   <img src="/public/readings.png" />
 </p>
 
