@@ -52,5 +52,9 @@ This project collects environmental data using the ENS160 and AHT21 sensors and 
    - Open the Serial Monitor in PlatformIO IDE.
    - You should see debug output indicating the status of the WiFi connection, MQTT connection, and sensor readings.
 
+<p align="center">
+  <img src="/public/readings.png" />
+</p>
+
 3. **MQTT Data**:
    - The sensor data is published to the MQTT broker under the topic `sensors/<MAC_ADDRESS>`, where `<MAC_ADDRESS>` is the MAC address of your ESP32 without colons.
