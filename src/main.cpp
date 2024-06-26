@@ -43,6 +43,9 @@ const char *MQTT_PASWORD = "test";
 // ens160 i2c address
 #define I2C_ADDRESS 0x53
 
+#define PUBLISH_INTERVAL 15000 // 15 seconds publish interval
+long lastMsg = 0;
+
 I2cInterface i2c;
 ENS160 ens160;
 Adafruit_AHTX0 aht;
@@ -65,15 +68,16 @@ struct AHT21_data
     float humidity;
 };
 
-String getFormattedTime(unsigned long epochTime) {
-  time_t rawTime = epochTime;
-  struct tm *timeInfo;
-  timeInfo = gmtime(&rawTime); // Convert epoch time to UTC
+String getFormattedTime(unsigned long epochTime)
+{
+    time_t rawTime = epochTime;
+    struct tm *timeInfo;
+    timeInfo = gmtime(&rawTime); // Convert epoch time to UTC
 
-  char buffer[25];
-  strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", timeInfo); // Format time as ISO 8601
+    char buffer[25];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", timeInfo); // Format time as ISO 8601
 
-  return String(buffer);
+    return String(buffer);
 }
 
 void initializeWiFi()
@@ -107,10 +111,15 @@ void initializeMQTT()
     debug(MQTT_PORT);
     debugln();
 
+    String mac = String(WiFi.macAddress());
+    mac.replace(":", "");
+
+    client.setKeepAlive(60);
     client.setServer(MQTT_HOST, MQTT_PORT);
+
     while (!client.connected())
     {
-        if (client.connect("ESP32Client", MQTT_USER, MQTT_PASWORD))
+        if (client.connect(mac.c_str(), MQTT_USER, MQTT_PASWORD))
         {
             debugln("[MQTT]: Successfully connected to broker");
             digitalWrite(LED_PIN, HIGH);
@@ -180,32 +189,20 @@ void setup()
 ENS160_data readENS160()
 {
     ENS160_data data;
-    // ens160.wait();
 
     if (ens160.update() == ENS16x::Result::Ok)
     {
         if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewData))
         {
-            debug("AQI UBA: ");
-            debug((uint8_t)ens160.getAirQualityIndex_UBA());
-            debug("\tTVOC: ");
+            // debug("AQI UBA: ");
+            // debug((uint8_t)ens160.getAirQualityIndex_UBA());
             data.tvoc = ens160.getTvoc();
+            data.eco2 = ens160.getEco2();
+
+            debug("TVOC: ");
             debug(data.tvoc);
             debug("\tECO2: ");
-            data.eco2 = ens160.getEco2();
             debugln(data.eco2);
-        }
-
-        if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewGeneralPurposeData))
-        {
-            debug("RS0: ");
-            debug(ens160.getRs0());
-            debug("\tRS1: ");
-            debug(ens160.getRs1());
-            debug("\tRS2: ");
-            debug(ens160.getRs2());
-            debug("\tRS3: ");
-            debugln(ens160.getRs3());
         }
     }
     return data;
@@ -224,6 +221,7 @@ AHT21_data readAHT21()
     debug(data.temp);
     debug("\tHUM: ");
     debugln(data.humidity);
+
     return data;
 }
 
@@ -234,49 +232,54 @@ void loop()
         initializeWiFi();
     }
 
-    debug("[loop] WiFi");
-    debug(WiFi.SSID());
-    debug("\t RSSI: ");
-    debugln(WiFi.RSSI());
-
     if (!client.connected())
     {
         digitalWrite(LED_PIN, LOW);
         initializeMQTT();
     }
 
+    long now = millis();
+    if (now == 0 || now - lastMsg > 15000)
+    {
+
+        debug("[loop] WiFi: ");
+        debug(WiFi.SSID());
+        debug("\t RSSI: ");
+        debugln(WiFi.RSSI());
+
+        lastMsg = now;
+        // retrieve timestamp
+        timeClient.update();
+        unsigned long epochTime = timeClient.getEpochTime();
+        String timestamp = getFormattedTime(timeClient.getEpochTime());
+        debugln(timestamp);
+
+        ENS160_data ens160_data = readENS160();
+        AHT21_data aht21_data = readAHT21();
+
+        StaticJsonDocument<200> json;
+
+        json["timestamp"] = timestamp;
+        json["eco2"] = ens160_data.eco2;
+        json["tvoc"] = ens160_data.tvoc;
+        json["humidity"] = aht21_data.humidity;
+        json["temperature"] = aht21_data.temp;
+
+        char jsonBuffer[256];
+        serializeJson(json, jsonBuffer);
+
+        // Construct the topic with MAC address, removing colons
+        String mac = String(WiFi.macAddress());
+        mac.replace(":", "");
+        String topic = String(MQTT_TOPIC) + mac;
+
+        // Publish the JSON string to the constructed topic
+        client.publish(topic.c_str(), jsonBuffer);
+
+        debug("[loop] Published message to ");
+        debugln(topic.c_str());
+    }
+
     // call loop() regularly to maintain MQTT connection and handle incoming messages
     client.loop();
-
-    // retrieve timestamp
-    timeClient.update();
-    unsigned long epochTime = timeClient.getEpochTime();
-    String timestamp = getFormattedTime(timeClient.getEpochTime());
-
-    ENS160_data ens160_data = readENS160();
-    AHT21_data aht21_data = readAHT21();
-
-    StaticJsonDocument<200> json;
-
-    json["timestamp"] = timestamp;
-    json["eco2"] = ens160_data.eco2;
-    json["tvoc"] = ens160_data.tvoc;
-    json["humidity"] = aht21_data.humidity;
-    json["temperature"] = aht21_data.temp;
-
-    char jsonBuffer[256];
-    serializeJson(json, jsonBuffer);
-
-    // Construct the topic with MAC address, removing colons
-    String mac = String(WiFi.macAddress());
-    mac.replace(":", "");
-    String topic = String(MQTT_TOPIC) + mac;
-
-    // Publish the JSON string to the constructed topic
-    client.publish(topic.c_str(), jsonBuffer);
-
-    debug("[loop] Published message to ");
-    debugln(topic.c_str());
-
-    delay(15000); // 15 seconds delay
 }
