@@ -2,13 +2,14 @@
 
 This project collects environmental data using the ENS160 and AHT21 sensors and publishes the data to an MQTT broker. It also uses NTP for timestamping the data.
 
+![Assembly Diagram](/public/assembly.jpg)
+
 #### Table of Contents
 - [Hardware Requirements](#hardware-requirements)
 - [Software Requirements](#software-requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [License](#license)
 
 #### Hardware Requirements
 - ESP32 or compatible microcontroller
@@ -18,6 +19,7 @@ This project collects environmental data using the ENS160 and AHT21 sensors and 
 
 #### Software Requirements
 - PlatformIO IDE with VSCode
+- MQTT broker, here mosquitto is the one used.
 
 #### Installation
 1. **Clone this Repository**:
@@ -50,6 +52,3 @@ This project collects environmental data using the ENS160 and AHT21 sensors and 
 
 3. **MQTT Data**:
    - The sensor data is published to the MQTT broker under the topic `sensors/<MAC_ADDRESS>`, where `<MAC_ADDRESS>` is the MAC address of your ESP32 without colons.
-
-#### License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
