@@ -1,17 +1,16 @@
-#include <Arduino.h>
+
+#include "Custom_AHT21.h"
+
 #include <ScioSense_ENS16x.h>
+#include "ens16x_i2c_interface.h"
+#include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_AHTX0.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <time.h>
-
-#include "ens16x_i2c_interface.h"
-
-using namespace ScioSense;
 
 // debug print
 #define DEBUG 1
@@ -28,27 +27,30 @@ using namespace ScioSense;
 const char *WIFI_SSID = "MiFibra-486C";
 const char *WIFI_PASSWORD = "2p2gm2Ss";
 
-const char *MQTT_HOST = "192.168.1.19";
+// mqtt options
+IPAddress MQTT_HOST(192, 168, 1, 19);
+
 const char *MQTT_USER = "test";
 const char *MQTT_PASWORD = "test";
 
 #define MQTT_PORT 1883
 #define MQTT_TOPIC "sensors/"
 
-// pin and I2C configurations
 #define LED_PIN 2
+
+// pin and I2C configurations
 #define SDA_PIN 8
 #define SCL_PIN 9
 #define I2C_FREQUENCY 100000 // I2C frequency in Hz (100 kHz)
-// ens160 i2c address
-#define I2C_ADDRESS 0x53
 
-#define PUBLISH_INTERVAL 15000 // 15 seconds publish interval
+// ens160 i2c address
+#define ENS160_I2C_ADDRESS 0x53
+
 long lastMsg = 0;
 
 I2cInterface i2c;
 ENS160 ens160;
-Adafruit_AHTX0 aht;
+// Adafruit_AHTX0 aht;
 
 WiFiClient wifi;
 PubSubClient client(wifi);
@@ -56,18 +58,39 @@ PubSubClient client(wifi);
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
+AHT21Sensor aht21Sensor;
+// ENS160Sensor ens160Sensor;
+
+/**
+ * @brief struct for data incoming from ENS160 sensor
+ *
+ * It serves as schema for storing intro friendly variables the attributes
+ * received by the ENS160 sensor reading
+ */
 struct ENS160_data
 {
     float tvoc;
     float eco2;
 };
 
-struct AHT21_data
+/**
+ * @brief Retrieves MQTT topic given the MAC address of the device
+ *
+ * @returns the MQTT topic
+ */
+String getMqttTopic()
 {
-    float temp;
-    float humidity;
-};
+    String mac = String(WiFi.macAddress());
+    mac.replace(":", "");
+    return mac;
+}
 
+/**
+ * @brief Transforms given time into format "%Y-%m-%dT%H:%M:%SZ"
+ *
+ * @param epochTime the current time
+ * @returns the formmated time
+ */
 String getFormattedTime(unsigned long epochTime)
 {
     time_t rawTime = epochTime;
@@ -80,39 +103,36 @@ String getFormattedTime(unsigned long epochTime)
     return String(buffer);
 }
 
+/**
+ * @brief Initializes the WiFi connection.
+ *
+ * This function attempts to connect to the specified WiFi network
+ * using the provided SSID and password. It will block until the
+ * connection is successful.
+ */
 void initializeWiFi()
 {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    debug("[WiFi] Connecting to: ");
-    debug(WIFI_SSID);
-    debug(" ");
 
+    String debugLog = "[WiFi] Connecting to: " + String(WIFI_SSID) + " ";
+    debug(debugLog);
     while (WiFi.status() != WL_CONNECTED)
     {
         debug(".");
         delay(500);
     }
-
     debugln();
-    debug("[WiFi] Successfully connected to: ");
-    debugln(WIFI_SSID);
-    debug("\tIP: ");
-    debug(WiFi.localIP());
-    debug("\tMAC: ");
-    debugln(WiFi.macAddress());
+    debugln("[WiFi] Successfully connected.");
 }
 
-void initializeMQTT()
+void initializeMqtt()
 {
-    debug("[MQTT] Connecting to: ");
-    debug(MQTT_HOST);
-    debug(":");
-    debug(MQTT_PORT);
+    String debugLog = "[MQTT] Connecting to: " + MQTT_HOST.toString() + ": ";
+    debug(debugLog.c_str());
     debugln();
 
-    String mac = String(WiFi.macAddress());
-    mac.replace(":", "");
+    String mac = getMqttTopic();
 
     client.setKeepAlive(60);
     client.setServer(MQTT_HOST, MQTT_PORT);
@@ -146,7 +166,7 @@ void initializeDebugging()
 void initializeI2C()
 {
     Wire.begin(SDA_PIN, SCL_PIN, I2C_FREQUENCY);
-    i2c.begin(Wire, I2C_ADDRESS);
+    i2c.begin(Wire, ENS160_I2C_ADDRESS);
 }
 
 void initializeSensors()
@@ -155,32 +175,29 @@ void initializeSensors()
     debugln("[initializeSensors] Initializing ENS160.");
     while (!ens160.begin(&i2c))
     {
-        debug(".");
+        debug('.');
         delay(1000);
     }
-    debugln("[initializeSensors] ENS160 initialized successfully.");
     ens160.startStandardMeasure();
+    debugln("[initializeSensors] ENS160 initialized successfully.");
 
     // initialize AHT21 sensor
     debug("[initializeSensors] Initializing AHT21.");
-    if (!aht.begin())
-    {
-        debug(".");
-        while (1)
-            delay(10);
-    }
+    aht21Sensor.begin();
     debugln("[initializeSensors] AHT21 initialized successfully.");
 }
 
 void setup()
 {
     debugln("Starting setup...");
-    initializeDebugging();
     pinMode(LED_PIN, OUTPUT);
+
+    initializeDebugging();
     initializeWiFi();
-    initializeMQTT();
+    initializeMqtt();
     initializeI2C();
     initializeSensors();
+
     timeClient.begin();
     timeClient.setTimeOffset(0);
     debugln("Setup complete.");
@@ -188,40 +205,22 @@ void setup()
 
 ENS160_data readENS160()
 {
-    ENS160_data data;
-
+    ENS160_data data = {0, 0};
+    ;
     if (ens160.update() == ENS16x::Result::Ok)
     {
         if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewData))
         {
-            // debug("AQI UBA: ");
-            // debug((uint8_t)ens160.getAirQualityIndex_UBA());
+            debug("AQI UBA: ");
+            debug((uint8_t)ens160.getAirQualityIndex_UBA());
             data.tvoc = ens160.getTvoc();
             data.eco2 = ens160.getEco2();
-
             debug("TVOC: ");
             debug(data.tvoc);
             debug("\tECO2: ");
             debugln(data.eco2);
         }
     }
-    return data;
-}
-
-AHT21_data readAHT21()
-{
-    AHT21_data data;
-    sensors_event_t humidity, temp;
-    aht.getEvent(&humidity, &temp);
-
-    data.temp = temp.temperature;
-    data.humidity = humidity.relative_humidity;
-
-    debug("TEMP: ");
-    debug(data.temp);
-    debug("\tHUM: ");
-    debugln(data.humidity);
-
     return data;
 }
 
@@ -235,35 +234,37 @@ void loop()
     if (!client.connected())
     {
         digitalWrite(LED_PIN, LOW);
-        initializeMQTT();
+        initializeMqtt();
     }
 
     long now = millis();
     if (now == 0 || now - lastMsg > 15000)
     {
-
-        debug("[loop] WiFi: ");
-        debug(WiFi.SSID());
-        debug("\t RSSI: ");
-        debugln(WiFi.RSSI());
+        String wifiLog = "[loop] WiFi: " + WiFi.SSID() + "\tIP: " + (WiFi.localIP()).toString() + "\t RSSI: " + WiFi.RSSI();
+        debugln(wifiLog);
 
         lastMsg = now;
+
         // retrieve timestamp
         timeClient.update();
         unsigned long epochTime = timeClient.getEpochTime();
         String timestamp = getFormattedTime(timeClient.getEpochTime());
         debugln(timestamp);
 
-        ENS160_data ens160_data = readENS160();
-        AHT21_data aht21_data = readAHT21();
+        ENS160_data ens160Data = readENS160();
+        AHT21Data aht21Data = aht21Sensor.read();
+        debug("TEMP: ");
+        debug(aht21Data.temp);
+        debug("\tHUM: ");
+        debugln(aht21Data.humidity);
 
         StaticJsonDocument<200> json;
 
         json["timestamp"] = timestamp;
-        json["eco2"] = ens160_data.eco2;
-        json["tvoc"] = ens160_data.tvoc;
-        json["humidity"] = aht21_data.humidity;
-        json["temperature"] = aht21_data.temp;
+        json["eco2"] = ens160Data.eco2;
+        json["tvoc"] = ens160Data.tvoc;
+        json["humidity"] = aht21Data.humidity;
+        json["temperature"] = aht21Data.temp;
 
         char jsonBuffer[256];
         serializeJson(json, jsonBuffer);
