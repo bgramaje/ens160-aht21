@@ -40,9 +40,7 @@ const char *MQTT_PASWORD = "test";
 #define SCL_PIN 9
 #define I2C_FREQUENCY 100000 // I2C frequency in Hz (100 kHz)
 
-
 long lastMsg = 0;
-
 
 I2cInterface i2c;
 
@@ -61,6 +59,18 @@ CustomENS160 ens160;
  * @returns the MQTT topic
  */
 String getMqttTopic()
+{
+    String mac = String(WiFi.macAddress());
+    mac.replace(":", "");
+    return String(MQTT_TOPIC) + mac;
+}
+
+/**
+ * @brief Retrieves MQTT clientId given the MAC address of the device
+ *
+ * @returns the MQTT topic
+ */
+String getMqttClientId()
 {
     String mac = String(WiFi.macAddress());
     mac.replace(":", "");
@@ -84,7 +94,6 @@ String getFormattedTime(unsigned long epochTime)
 
     return String(buffer);
 }
-
 
 /**
  * @brief Initializes the WiFi connection.
@@ -115,14 +124,14 @@ void initializeMqtt()
     debug(debugLog.c_str());
     debugln();
 
-    String mac = getMqttTopic();
+    String clientId = getMqttClientId();
 
     client.setKeepAlive(60);
     client.setServer(MQTT_HOST, MQTT_PORT);
 
     while (!client.connected())
     {
-        if (client.connect(mac.c_str(), MQTT_USER, MQTT_PASWORD))
+        if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASWORD))
         {
             debugln("[MQTT]: Successfully connected to broker");
             digitalWrite(LED_PIN, HIGH);
@@ -212,28 +221,22 @@ void loop()
         String aht21log = "[loop] AHT21: TEMP: " + String(aht21d.temp) + "\tHUM: " + String(aht21d.humidity);
 
         ENS160Data ens160d = ens160.read();
-        String ens160log = "[loop] ENS160: ECO2: " + String(ens160d.eco2)+ "\tTVOC: " + String(ens160d.tvoc);
-        
+        String ens160log = "[loop] ENS160: ECO2: " + String(ens160d.eco2) + "\tTVOC: " + String(ens160d.tvoc);
+
         debugln(aht21Log.c_str());
         debugln(ens160log.c_str());
 
-
         JsonDocument json;
-
         json["timestamp"] = timestamp;
         json["eco2"] = ens160d.eco2;
         json["tvoc"] = ens160d.tvoc;
         json["humidity"] = aht21d.humidity;
         json["temperature"] = aht21d.temp;
 
+        // Publish the JSON string to the constructed topic
+        String topic = getMqttTopic();
         char jsonBuffer[256];
         serializeJson(json, jsonBuffer);
-
-        // Construct the topic with MAC address, removing colons
-        String mac = getMqttTopic();
-        String topic = String(MQTT_TOPIC) + mac;
-
-        // Publish the JSON string to the constructed topic
         client.publish(topic.c_str(), jsonBuffer);
 
         debug("[loop] Published message to ");
