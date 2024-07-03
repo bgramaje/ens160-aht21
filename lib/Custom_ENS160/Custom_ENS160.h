@@ -2,12 +2,13 @@
 #define Custom_ENS160_H
 
 #include <Arduino.h>
-#include <ScioSense_ENS16x.h>
+
+#include "ens16x.h"
+#include "ens160.h"
 #include "ens16x_i2c_interface.h"
 
 #define ENS160_I2C_ADDRESS 0x53
 
-using namespace ScioSense;
 
 /**
  * @brief struct for data incoming from ENS160 sensor
@@ -21,13 +22,12 @@ struct ENS160Data
     float eco2;
 };
 
-class ENS160Sensor
+class CustomENS160
 {
 public:
-    ENS160 ens160;
-    I2cInterface i2c;
-    void begin();
+    void begin(I2cInterface* i2c);
     ENS160Data read();
+    ENS160 ens;  // Declare ens160 as a private member
 };
 
 #endif // Custom_ENS160_H

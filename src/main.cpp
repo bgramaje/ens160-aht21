@@ -1,8 +1,3 @@
-
-#include "Custom_AHT21.h"
-
-#include <ScioSense_ENS16x.h>
-#include "ens16x_i2c_interface.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
@@ -12,7 +7,9 @@
 #include <NTPClient.h>
 #include <time.h>
 
-// debug print
+#include "Custom_AHT21.h"
+#include "Custom_ENS160.h"
+
 #define DEBUG 1
 
 #if DEBUG == 1
@@ -43,14 +40,11 @@ const char *MQTT_PASWORD = "test";
 #define SCL_PIN 9
 #define I2C_FREQUENCY 100000 // I2C frequency in Hz (100 kHz)
 
-// ens160 i2c address
-#define ENS160_I2C_ADDRESS 0x53
 
 long lastMsg = 0;
 
+
 I2cInterface i2c;
-ENS160 ens160;
-// Adafruit_AHTX0 aht;
 
 WiFiClient wifi;
 PubSubClient client(wifi);
@@ -58,20 +52,8 @@ PubSubClient client(wifi);
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
-AHT21Sensor aht21Sensor;
-// ENS160Sensor ens160Sensor;
-
-/**
- * @brief struct for data incoming from ENS160 sensor
- *
- * It serves as schema for storing intro friendly variables the attributes
- * received by the ENS160 sensor reading
- */
-struct ENS160_data
-{
-    float tvoc;
-    float eco2;
-};
+CustomAHT21 aht21;
+CustomENS160 ens160;
 
 /**
  * @brief Retrieves MQTT topic given the MAC address of the device
@@ -102,6 +84,7 @@ String getFormattedTime(unsigned long epochTime)
 
     return String(buffer);
 }
+
 
 /**
  * @brief Initializes the WiFi connection.
@@ -159,7 +142,7 @@ void initializeDebugging()
     Serial.begin(115200);
     if (DEBUG == 1)
     {
-        ens160.enableDebugging(Serial);
+        ens160.ens.enableDebugging(Serial);
     }
 }
 
@@ -173,17 +156,12 @@ void initializeSensors()
 {
     // initialize ENS160 sensor
     debugln("[initializeSensors] Initializing ENS160.");
-    while (!ens160.begin(&i2c))
-    {
-        debug('.');
-        delay(1000);
-    }
-    ens160.startStandardMeasure();
+    ens160.begin(&i2c);
     debugln("[initializeSensors] ENS160 initialized successfully.");
 
     // initialize AHT21 sensor
     debug("[initializeSensors] Initializing AHT21.");
-    aht21Sensor.begin();
+    aht21.begin();
     debugln("[initializeSensors] AHT21 initialized successfully.");
 }
 
@@ -201,27 +179,6 @@ void setup()
     timeClient.begin();
     timeClient.setTimeOffset(0);
     debugln("Setup complete.");
-}
-
-ENS160_data readENS160()
-{
-    ENS160_data data = {0, 0};
-    ;
-    if (ens160.update() == ENS16x::Result::Ok)
-    {
-        if (hasFlag(ens160.getDeviceStatus(), ENS16x::DeviceStatus::NewData))
-        {
-            debug("AQI UBA: ");
-            debug((uint8_t)ens160.getAirQualityIndex_UBA());
-            data.tvoc = ens160.getTvoc();
-            data.eco2 = ens160.getEco2();
-            debug("TVOC: ");
-            debug(data.tvoc);
-            debug("\tECO2: ");
-            debugln(data.eco2);
-        }
-    }
-    return data;
 }
 
 void loop()
@@ -251,27 +208,29 @@ void loop()
         String timestamp = getFormattedTime(timeClient.getEpochTime());
         debugln(timestamp);
 
-        ENS160_data ens160Data = readENS160();
-        AHT21Data aht21Data = aht21Sensor.read();
-        debug("TEMP: ");
-        debug(aht21Data.temp);
-        debug("\tHUM: ");
-        debugln(aht21Data.humidity);
+        AHT21Data aht21d = aht21.read();
+        String aht21log = "[loop] AHT21: TEMP: " + String(aht21d.temp) + "\tHUM: " + String(aht21d.humidity);
 
-        StaticJsonDocument<200> json;
+        ENS160Data ens160d = ens160.read();
+        String ens160log = "[loop] ENS160: ECO2: " + String(ens160d.eco2)+ "\tTVOC: " + String(ens160d.tvoc);
+        
+        debugln(aht21Log.c_str());
+        debugln(ens160log.c_str());
+
+
+        JsonDocument json;
 
         json["timestamp"] = timestamp;
-        json["eco2"] = ens160Data.eco2;
-        json["tvoc"] = ens160Data.tvoc;
-        json["humidity"] = aht21Data.humidity;
-        json["temperature"] = aht21Data.temp;
+        json["eco2"] = ens160d.eco2;
+        json["tvoc"] = ens160d.tvoc;
+        json["humidity"] = aht21d.humidity;
+        json["temperature"] = aht21d.temp;
 
         char jsonBuffer[256];
         serializeJson(json, jsonBuffer);
 
         // Construct the topic with MAC address, removing colons
-        String mac = String(WiFi.macAddress());
-        mac.replace(":", "");
+        String mac = getMqttTopic();
         String topic = String(MQTT_TOPIC) + mac;
 
         // Publish the JSON string to the constructed topic
