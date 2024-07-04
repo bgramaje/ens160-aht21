@@ -223,7 +223,7 @@ void loop()
         ENS160Data ens160d = ens160.read();
         String ens160log = "[loop] ENS160: ECO2: " + String(ens160d.eco2) + "\tTVOC: " + String(ens160d.tvoc);
 
-        debugln(aht21Log.c_str());
+        debugln(aht21log.c_str());
         debugln(ens160log.c_str());
 
         JsonDocument json;
