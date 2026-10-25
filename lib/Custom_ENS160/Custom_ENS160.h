@@ -28,6 +28,10 @@ public:
     void begin(I2cInterface* i2c);
     ENS160Data read();
     ENS160 ens;  // Declare ens160 as a private member
+
+private:
+    // Writes OPMODE standard (0x02). Idle/deep sleep leaves eCO2 and TVOC at 0.
+    void ensureStandardMode();
 };
 
 #endif // Custom_ENS160_H
